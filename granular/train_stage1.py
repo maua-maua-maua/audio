@@ -4,33 +4,45 @@
 Created on Wed Sep 15 15:17:53 2021
 
 @author: adrienbitton
-
-tested on python 3.7
-python3.7 -m venv venv_tmp
-source venv_tmp/bin/activate
-pip install -r requirements.txt
 """
-
 
 import glob
 import os
 import shutil
-from argparse import ArgumentParser
-
-import matplotlib
-import pytorch_lightning as pl
-import torch
-from models import waveform_model
-from pytorch_lightning.callbacks import LearningRateMonitor
-from utils_stage1 import export_audio_reconstructions, export_latents, make_audio_dataloaders, plot_latents
-
-matplotlib.rcParams["agg.path.chunksize"] = 10000
-matplotlib.use("Agg")  # for the server
-import json
 import time
+from argparse import ArgumentParser
+from pathlib import Path
 
 import numpy as np
-from matplotlib import pyplot as plt
+import pytorch_lightning as pl
+import torch
+from pytorch_lightning.callbacks import LearningRateMonitor
+
+from models import waveform_model
+from utils_stage1 import export_audio_reconstructions, export_latents, make_audio_dataloaders, plot_latents
+
+w_config = {
+    "amplitude_norm": False,
+    "channels": 128,
+    "env_dist": 0,
+    "h_dim": 512,
+    "kernel_size": 9,
+    "l_grain": 2048,
+    "log_dist": 0.0,
+    "mel_dist": True,
+    "mel_scales": [2048, 1024],
+    "n_convs": 3,
+    "n_linears": 3,
+    "normalize_ola": True,
+    "pp_chans": 5,
+    "pp_ker": 65,
+    "silent_reject": [0.2, 0.2],
+    "spec_power": 1,
+    "sr": 22050,
+    "stft_scales": [2048, 1024, 512, 256],
+    "stride": 4,
+    "z_dim": 128,
+}
 
 if __name__ == "__main__":
     pl.seed_everything(1234)
@@ -43,57 +55,37 @@ if __name__ == "__main__":
     # ------------
 
     parser = ArgumentParser()
-    parser.add_argument("--mname", default="test", type=str)
+    parser.add_argument("--classes", nargs="+")
+    parser.add_argument("--data_dir", type=str)
+    parser.add_argument("--name", default="test", type=str)
     parser.add_argument("--continue_train", action="store_true")
-    parser.add_argument("--batch_size", default=32, type=int)
+    parser.add_argument("--batch_size", default=24, type=int)
     parser.add_argument("--learning_rate", default=0.0002, type=float)
-    parser.add_argument("--max_steps", default=100000, type=int)
+    parser.add_argument("--max_steps", default=300000, type=int)
     parser.add_argument("--num_workers", default=2, type=int)
     parser.add_argument("--gpus", default=1, type=int)
     parser.add_argument("--precision", default=32, type=int)
     parser.add_argument("--profiler", action="store_true")
     parser.add_argument("--out_dir", default="outputs", type=str)
-    parser.add_argument("--data_dir", default="./a_dataset/", type=str)
-    parser.add_argument("--classes", nargs="+", default=["Clap", "Hat", "Kick", "Snare"])
-    parser.add_argument("--tar_beta", default=0.01, type=float)
+    parser.add_argument("--tar_beta", default=0.003, type=float)
     parser.add_argument("--beta_steps", default=500, type=int)
     parser.add_argument("--tar_l", default=1.1, type=float)
     args = parser.parse_args()
 
+    if args.name is None:
+        args.name = "waveform_" + Path(args.data_dir).stem
+
     if args.continue_train:
-        ckpt_file = sorted(glob.glob(os.path.join(curr_dir, args.out_dir, args.mname, "checkpoints", "*.ckpt")))[-1]
-        yaml_file = os.path.join(curr_dir, args.out_dir, args.mname, "hparams.yaml")
-        args.mname = args.mname + "_continue"
+        ckpt_file = sorted(glob.glob(os.path.join(curr_dir, args.out_dir, args.name, "checkpoints", "*.ckpt")))[-1]
+        yaml_file = os.path.join(curr_dir, args.out_dir, args.name, "hparams.yaml")
+        args.name = args.name + "_continue"
         # take care of setting the learning rate and beta kld to the target end of training values
         lr_decay = 1e-2
         args.learning_rate = args.learning_rate * lr_decay
-        print("\n*** training continuation for ", args.mname)
+        print("\n*** training continuation for ", args.name)
         print("from ckpt_file,yaml_file =", ckpt_file, yaml_file)
 
-    w_config = {
-        "amplitude_norm": False,
-        "channels": 128,
-        "env_dist": 0,
-        "h_dim": 512,
-        "kernel_size": 9,
-        "l_grain": 2048,
-        "log_dist": 0.0,
-        "mel_dist": True,
-        "mel_scales": [2048, 1024],
-        "n_convs": 3,
-        "n_linears": 3,
-        "normalize_ola": True,
-        "pp_chans": 5,
-        "pp_ker": 65,
-        "silent_reject": [0.2, 0.2],
-        "spec_power": 1,
-        "sr": 22050,
-        "stft_scales": [2048, 1024, 512, 256],
-        "stride": 4,
-        "z_dim": 128,
-    }
-
-    default_root_dir = os.path.join(curr_dir, args.out_dir, args.mname)
+    default_root_dir = os.path.join(curr_dir, args.out_dir, args.name)
     print("writing outputs into default_root_dir", default_root_dir)
 
     # lighting is writting output files in default_root_dir/lightning_logs/version_0/
@@ -169,7 +161,7 @@ if __name__ == "__main__":
     w_model.continue_train = args.continue_train
     w_model.to(device)
     w_model.init_beta(args.max_steps, args.tar_beta, beta_steps=args.beta_steps)
-    w_model.init_spectral_distances(
+    w_model.init_SpectralDistances(
         stft_scales=w_config["stft_scales"],
         mel_scales=w_config["mel_scales"],
         spec_power=w_config["spec_power"],

@@ -7,10 +7,15 @@ Created on Thu Sep 16 16:43:08 2021
 """
 
 
+import matplotlib
+
+matplotlib.rcParams["agg.path.chunksize"] = 10000
+matplotlib.use("Agg")  # for the server
 import os
 
 import soundfile as sf
 import torch
+from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader
 
 # ------------

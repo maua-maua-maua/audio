@@ -10,7 +10,6 @@ git+https://github.com/caillonantoine/UDLS.git#egg=udls
 gputil
 librosa
 matplotlib
-mpi4py
 numba
 numpy==1.20.1
 pandas

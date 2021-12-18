@@ -14,9 +14,10 @@ from argparse import ArgumentParser
 import numpy as np
 import soundfile as sf
 import torch
-from models import hierarchical_model
 from scipy import signal
 from torch import nn
+
+from granular.models import hierarchical_model
 
 
 def make_interp(model, tar_l, temperature=1.0):

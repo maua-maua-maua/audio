@@ -6,28 +6,22 @@ Created on Wed Sep 15 15:17:53 2021
 @author: adrienbitton
 """
 
-
 import glob
 import os
 import shutil
+import time
 from argparse import ArgumentParser
+from pathlib import Path
 
-import matplotlib
+import numpy as np
 import pytorch_lightning as pl
 import torch
-from models import hierarchical_model
 from pytorch_lightning.callbacks import LearningRateMonitor
+
+from models import hierarchical_model
 from utils_stage1 import make_audio_dataloaders
 from utils_stage2 import plot_embeddings
 from utils_stage3 import export_audio_to_embeddings, export_hierarchical_audio_reconstructions, export_random_samples
-
-matplotlib.rcParams["agg.path.chunksize"] = 10000
-matplotlib.use("Agg")  # for the server
-import json
-import time
-
-import numpy as np
-from matplotlib import pyplot as plt
 
 if __name__ == "__main__":
     pl.seed_everything(1234)
@@ -40,8 +34,8 @@ if __name__ == "__main__":
     # ------------
 
     parser = ArgumentParser()
-    parser.add_argument("--latent_mname", default="test_latent_model", type=str)
-    parser.add_argument("--waveform_mname", default="test_waveform_model", type=str)
+    parser.add_argument("--latent_name", default=None, type=str)
+    parser.add_argument("--waveform_name", default=None, type=str)
     parser.add_argument("--batch_size", default=16, type=int)
     parser.add_argument(
         "--learning_rate", default=2e-6, type=float
@@ -56,14 +50,19 @@ if __name__ == "__main__":
     parser.add_argument("--out_dir", default="outputs", type=str)
     args = parser.parse_args()
 
-    args.mname = args.waveform_mname + "__" + args.latent_mname + "__finetuned"
-    if args.w_beta > 0.0:
-        args.mname += "_wbeta" + str(args.w_beta)
-    if args.l_beta > 0.0:
-        args.mname += "_lbeta" + str(args.l_beta)
-    args.latent_mname = args.waveform_mname + "__" + args.latent_mname
+    if args.latent_name is None:
+        args.latent_name = "latent_" + Path(args.data_dir).stem
+    if args.waveform_name is None:
+        args.waveform_name = "waveform_" + Path(args.data_dir).stem
 
-    default_root_dir = os.path.join(curr_dir, args.out_dir, args.mname)
+    args.name = args.waveform_name + "__" + args.latent_name + "__finetuned"
+    if args.w_beta > 0.0:
+        args.name += "_wbeta" + str(args.w_beta)
+    if args.l_beta > 0.0:
+        args.name += "_lbeta" + str(args.l_beta)
+    args.latent_name = args.waveform_name + "__" + args.latent_name
+
+    default_root_dir = os.path.join(curr_dir, args.out_dir, args.name)
     print("writing outputs into default_root_dir", default_root_dir)
 
     # lighting is writting output files in default_root_dir/lightning_logs/version_0/
@@ -73,27 +72,21 @@ if __name__ == "__main__":
     ## STAGE 1 & 2: loading configuration aof waveform and latent VAEs + creating audio dataset
     ###############################################################################
 
-    print("\n*** loading of pretrained waveform VAE from", os.path.join(curr_dir, args.out_dir, args.waveform_mname))
+    print("\n*** loading of pretrained waveform VAE from", os.path.join(curr_dir, args.out_dir, args.waveform_name))
 
-    w_args = np.load(
-        os.path.join(curr_dir, args.out_dir, args.waveform_mname, "argparse.npy"), allow_pickle=True
-    ).item()
-    with open(w_args["w_config"]) as json_file:
-        w_config = json.load(json_file)
-    w_ckpt_file = sorted(glob.glob(os.path.join(curr_dir, args.out_dir, args.waveform_mname, "checkpoints", "*.ckpt")))[
+    w_args = np.load(os.path.join(curr_dir, args.out_dir, args.waveform_name, "argparse.npy"), allow_pickle=True).item()
+    from train_stage1 import w_config
+
+    w_ckpt_file = sorted(glob.glob(os.path.join(curr_dir, args.out_dir, args.waveform_name, "checkpoints", "*.ckpt")))[
         -1
     ]
-    w_yaml_file = os.path.join(curr_dir, args.out_dir, args.waveform_mname, "hparams.yaml")
+    w_yaml_file = os.path.join(curr_dir, args.out_dir, args.waveform_name, "hparams.yaml")
 
-    print("\n*** loading of pretrained latent VAE from", os.path.join(curr_dir, args.out_dir, args.latent_mname))
+    print("\n*** loading of pretrained latent VAE from", os.path.join(curr_dir, args.out_dir, args.latent_name))
 
-    l_args = np.load(os.path.join(curr_dir, args.out_dir, args.latent_mname, "argparse.npy"), allow_pickle=True).item()
-    with open(l_args["l_config"]) as json_file:
-        l_config = json.load(json_file)
-    l_ckpt_file = sorted(glob.glob(os.path.join(curr_dir, args.out_dir, args.latent_mname, "checkpoints", "*.ckpt")))[
-        -1
-    ]
-    l_yaml_file = os.path.join(curr_dir, args.out_dir, args.latent_mname, "hparams.yaml")
+    l_args = np.load(os.path.join(curr_dir, args.out_dir, args.latent_name, "argparse.npy"), allow_pickle=True).item()
+    l_ckpt_file = sorted(glob.glob(os.path.join(curr_dir, args.out_dir, args.latent_name, "checkpoints", "*.ckpt")))[-1]
+    l_yaml_file = os.path.join(curr_dir, args.out_dir, args.latent_name, "hparams.yaml")
 
     print("\n*** loading audio data")
 
@@ -145,7 +138,7 @@ if __name__ == "__main__":
     )
     model.to(device)
     model.init_beta(w_args, l_args, w_beta=args.w_beta, l_beta=args.l_beta)
-    model.init_spectral_distances(w_config, device=device)
+    model.init_SpectralDistances(w_config, device=device)
     model.export_dir = os.path.join(tmp_dir, "exports")  # to write export files
 
     print("model running on device", model.device)

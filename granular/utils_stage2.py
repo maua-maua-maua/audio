@@ -7,6 +7,10 @@ Created on Thu Sep 16 16:43:08 2021
 """
 
 
+import matplotlib
+
+matplotlib.rcParams["agg.path.chunksize"] = 10000
+matplotlib.use("Agg")  # for the server
 import os
 
 import numpy as np

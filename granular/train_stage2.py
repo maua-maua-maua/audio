@@ -6,17 +6,19 @@ Created on Wed Sep 15 15:17:53 2021
 @author: adrienbitton
 """
 
-
 import glob
 import os
 import shutil
+import time
 from argparse import ArgumentParser
+from pathlib import Path
 
-import matplotlib
+import numpy as np
 import pytorch_lightning as pl
 import torch
-from models import latent_model, waveform_model
 from pytorch_lightning.callbacks import LearningRateMonitor
+
+from models import latent_model, waveform_model
 from utils_stage1 import export_latents, make_audio_dataloaders
 from utils_stage2 import (
     export_embedding_to_audio_reconstructions,
@@ -26,13 +28,8 @@ from utils_stage2 import (
     plot_embeddings,
 )
 
-matplotlib.rcParams["agg.path.chunksize"] = 10000
-matplotlib.use("Agg")  # for the server
-import json
-import time
+l_config = {"e_dim": 256, "h_dim": 512, "n_RNN": 1, "n_linears": 2, "rnn_type": "LSTM"}
 
-import numpy as np
-from matplotlib import pyplot as plt
 
 if __name__ == "__main__":
     pl.seed_everything(1234)
@@ -45,26 +42,29 @@ if __name__ == "__main__":
     # ------------
 
     parser = ArgumentParser()
-    parser.add_argument("--mname", default="test_latent_model", type=str)
-    parser.add_argument("--waveform_mname", default="test_waveform_model", type=str)
+    parser.add_argument("--name", default=None, type=str)
+    parser.add_argument("--waveform_name", default=None, type=str)
     parser.add_argument("--batch_size", default=32, type=int)
     parser.add_argument("--learning_rate", default=0.0002, type=float)
-    parser.add_argument("--max_steps", default=100000, type=int)
-    parser.add_argument("--tar_beta", default=1.0, type=float)
+    parser.add_argument("--max_steps", default=500000, type=int)
+    parser.add_argument("--tar_beta", default=0.01, type=float)
     parser.add_argument("--beta_steps", default=500, type=int)
     parser.add_argument("--conditional", action="store_true")
     parser.add_argument("--num_workers", default=2, type=int)
     parser.add_argument("--gpus", default=1, type=int)
     parser.add_argument("--precision", default=32, type=int)
     parser.add_argument("--profiler", action="store_true")
-    parser.add_argument("--out_dir", default="outputs", type=str)
+    parser.add_argument("--out_dir", default="modelzoo/", type=str)
     args = parser.parse_args()
 
-    args.mname = args.waveform_mname + "__" + args.mname
+    if args.name is None:
+        args.name = "latent_" + Path(args.data_dir).stem
+    if args.waveform_name is None:
+        args.waveform_name = "waveform_" + Path(args.data_dir).stem
 
-    l_config = {"e_dim": 256, "h_dim": 512, "n_RNN": 1, "n_linears": 2, "rnn_type": "LSTM"}
+    args.name = args.waveform_name + "__" + args.name
 
-    default_root_dir = os.path.join(curr_dir, args.out_dir, args.mname)
+    default_root_dir = os.path.join(curr_dir, args.out_dir, args.name)
     print("writing outputs into default_root_dir", default_root_dir)
 
     # lighting is writting output files in default_root_dir/lightning_logs/version_0/
@@ -74,11 +74,9 @@ if __name__ == "__main__":
     ## STAGE 1: loading configuration and parameters of waveform VAE + creating dataset of latent projections
     ###############################################################################
 
-    print("\n*** loading of pretrained waveform VAE from", os.path.join(curr_dir, args.out_dir, args.waveform_mname))
+    print("\n*** loading of pretrained waveform VAE from", os.path.join(curr_dir, args.out_dir, args.waveform_name))
 
-    w_args = np.load(
-        os.path.join(curr_dir, args.out_dir, args.waveform_mname, "argparse.npy"), allow_pickle=True
-    ).item()
+    w_args = np.load(os.path.join(curr_dir, args.out_dir, args.waveform_name, "argparse.npy"), allow_pickle=True).item()
     from train_stage1 import w_config
 
     print("\n*** loading audio data")
@@ -98,10 +96,8 @@ if __name__ == "__main__":
 
     print("\n*** restoring waveform model checkpoint")
 
-    ckpt_file = sorted(glob.glob(os.path.join(curr_dir, args.out_dir, args.waveform_mname, "checkpoints", "*.ckpt")))[
-        -1
-    ]
-    yaml_file = os.path.join(curr_dir, args.out_dir, args.waveform_mname, "hparams.yaml")
+    ckpt_file = sorted(glob.glob(os.path.join(curr_dir, args.out_dir, args.waveform_name, "checkpoints", "*.ckpt")))[-1]
+    yaml_file = os.path.join(curr_dir, args.out_dir, args.waveform_name, "hparams.yaml")
     w_model = waveform_model.load_from_checkpoint(checkpoint_path=ckpt_file, hparams_file=yaml_file, map_location="cpu")
 
     w_model.to(device)
