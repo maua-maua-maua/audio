@@ -1,0 +1,9 @@
+**__pycache__
+**.pyc
+.vscode/
+modelzoo/*
+!modelzoo/.gitkeep
+cache/*
+!cache/.gitkeep
+output/*
+!output/.gitkeep
