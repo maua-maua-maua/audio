@@ -17,7 +17,7 @@ import torch
 from scipy import signal
 from torch import nn
 
-from granular.models import hierarchical_model
+from .models import hierarchical_model
 
 
 def make_interp(model, tar_l, temperature=1.0):

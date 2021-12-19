@@ -22,10 +22,6 @@ from matplotlib import pyplot as plt
 from sklearn.decomposition import PCA
 from torch.utils.data import DataLoader, random_split
 
-# ------------
-# WAVEFORM AUTO-ENCODER (grain-level embedding)
-# ------------
-
 
 def make_audio_dataloaders(
     data_dir,
@@ -52,12 +48,14 @@ def make_audio_dataloaders(
     print("# overlapping grains", n_grains)
 
     classes = sorted(classes)
+    if len(classes) == 0:
+        classes = [""]
     train_datasets = []
     test_datasets = []
 
-    for i, drum in enumerate(classes):
-        files = glob.glob(data_dir + drum + "/*.wav")
-        print("\n*** class and # files", drum, len(files))
+    for i, label in enumerate(classes):
+        files = glob.glob(data_dir + label + "/*.wav")
+        print("\n*** class and # files", label, len(files))
         audios = []
         labels = []
         n_rejected = 0
@@ -100,11 +98,11 @@ def make_audio_dataloaders(
         labels = torch.from_numpy(np.stack(labels, axis=0)).long()
         print("* dataset sizes", audios.shape, labels.shape)
 
-        n_drum = len(labels)
-        n_train = int(n_drum * 0.85)
-        print("* split sizes", n_train, n_drum - n_train)
+        n_label = len(labels)
+        n_train = int(n_label * 0.85)
+        print("* split sizes", n_train, n_label - n_train)
         dataset = torch.utils.data.TensorDataset(audios, labels)
-        train_dataset, test_dataset = random_split(dataset, [n_train, n_drum - n_train])
+        train_dataset, test_dataset = random_split(dataset, [n_train, n_label - n_train])
         train_datasets.append(train_dataset)
         test_datasets.append(test_dataset)
 
@@ -195,6 +193,3 @@ def plot_latents(train_latents, train_labels, test_latents, test_labels, classes
     plt.legend(loc="upper right")
     plt.savefig(os.path.join(export_dir, "latent_scatter_testset.pdf"))
     plt.close("all")
-
-
-# if __name__ == "__main__":

@@ -1,7 +1,10 @@
 import pytorch_lightning as pl
 import torch
-from granular.models import LatentModel, SpectralDistances, WaveformModel, compute_kld, envelope_distance
 from torch.nn import functional as F
+
+from .latent import LatentModel
+from .utils import SpectralDistances, compute_kld, envelope_distance
+from .waveform import WaveformModel
 
 
 class HierarchicalModel(pl.LightningModule):

@@ -21,10 +21,6 @@ from matplotlib import pyplot as plt
 from sklearn.decomposition import PCA
 from torch.utils.data import DataLoader
 
-# ------------
-# LATENT AUTO-ENCODER (series-level embedding)
-# ------------
-
 
 def make_latent_dataloaders(train_latents, train_labels, test_latents, test_labels, batch_size, num_workers=2):
     train_dataset = torch.utils.data.TensorDataset(train_latents, train_labels)
@@ -126,6 +122,3 @@ def plot_embeddings(train_latents, train_labels, test_latents, test_labels, clas
     plt.legend(loc="upper right")
     plt.savefig(os.path.join(export_dir, "embedding_scatter_testset.pdf"))
     plt.close("all")
-
-
-# if __name__ == "__main__":

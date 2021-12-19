@@ -18,10 +18,6 @@ import torch
 from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader
 
-# ------------
-# HIERARCHICAL AUTO-ENCODER (two-level embeddings)
-# ------------
-
 
 def export_hierarchical_audio_reconstructions(model, batch, trainset=True):
     if os.path.exists(model.export_dir) is False:
@@ -79,6 +75,3 @@ def export_audio_to_embeddings(model, train_dataloader, test_dataloader):
     train_latents, train_labels = compute_audio_to_embeddings(model, train_dataloader)
     test_latents, test_labels = compute_audio_to_embeddings(model, test_dataloader)
     return train_latents, train_labels, test_latents, test_labels
-
-
-# if __name__ == "__main__":

@@ -1,9 +1,9 @@
 # examples of creating model configurations
-from heirarchical import HierarchicalModel
-from latent import LatentModel
-from layers import *
-from utils import *
-from waveform import WaveformModel
+from .hierarchical import HierarchicalModel
+from .latent import LatentModel
+from .layers import *
+from .utils import *
+from .waveform import WaveformModel
 
 """
 import json

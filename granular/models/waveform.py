@@ -1,20 +1,12 @@
 import numpy as np
 import pytorch_lightning as pl
 import torch
-from granular.models import (
-    LinearBlock,
-    ResidualConv,
-    SpectralDistances,
-    StridedConv,
-    compute_kld,
-    envelope_distance,
-    mod_sigmoid,
-    noise_filtering,
-    reparametrize,
-)
 from scipy import signal
 from torch import nn
 from torch.nn import functional as F
+
+from .layers import LinearBlock, ResidualConv, StridedConv
+from .utils import SpectralDistances, compute_kld, envelope_distance, mod_sigmoid, noise_filtering, reparametrize
 
 
 class WaveformModel(pl.LightningModule):
@@ -121,7 +113,7 @@ class WaveformModel(pl.LightningModule):
             self.tar_beta = tar_beta
             self.beta_steps = beta_steps  # number of warmup steps over half max_steps
             self.warmup_start = int(0.1 * max_steps)
-            self.beta_step_size = int(max_steps / 2 / beta_steps)
+            self.beta_step_size = max(1, int(max_steps / 2 / beta_steps))
             self.beta_step_val = tar_beta / beta_steps
             self.beta = 0
             print("\n*** setting beta warmup from 0 to ", tar_beta)

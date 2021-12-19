@@ -10,82 +10,113 @@ import glob
 import os
 import shutil
 import time
-from argparse import ArgumentParser
 from pathlib import Path
+from typing import List
 
 import numpy as np
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.callbacks import LearningRateMonitor
 
-from models import waveform_model
-from utils_stage1 import export_audio_reconstructions, export_latents, make_audio_dataloaders, plot_latents
+from .models import WaveformModel
+from .utils_stage1 import export_audio_reconstructions, export_latents, make_audio_dataloaders, plot_latents
 
-w_config = {
-    "amplitude_norm": False,
-    "channels": 128,
-    "env_dist": 0,
-    "h_dim": 512,
-    "kernel_size": 9,
-    "l_grain": 2048,
-    "log_dist": 0.0,
-    "mel_dist": True,
-    "mel_scales": [2048, 1024],
-    "n_convs": 3,
-    "n_linears": 3,
-    "normalize_ola": True,
-    "pp_chans": 5,
-    "pp_ker": 65,
-    "silent_reject": [0.2, 0.2],
-    "spec_power": 1,
-    "sr": 22050,
-    "stft_scales": [2048, 1024, 512, 256],
-    "stride": 4,
-    "z_dim": 128,
-}
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-if __name__ == "__main__":
-    pl.seed_everything(1234)
-    torch.backends.cudnn.benchmark = True
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    curr_dir = os.getcwd()
 
-    # ------------
-    # hyper-parameters and trainer
-    # ------------
+def stage1(
+    data_dir: str,
+    classes=[],
+    name=None,
+    continue_train=False,
+    batch_size=24,
+    learning_rate=0.0002,
+    max_steps=300000,
+    num_workers=2,
+    gpus=1,
+    precision=32,
+    profiler=False,
+    out_dir="modelzoo",
+    tar_beta=0.003,
+    beta_steps=500,
+    tar_l=1.1,
+    # waveform model config
+    amplitude_norm=False,
+    channels=128,
+    env_dist=0,
+    h_dim=512,
+    kernel_size=9,
+    l_grain=2048,
+    log_dist=0.0,
+    mel_dist=True,
+    mel_scales=[2048, 1024],
+    n_convs=3,
+    n_linears=3,
+    normalize_ola=True,
+    pp_chans=5,
+    pp_ker=65,
+    silent_reject=[0.2, 0.2],
+    spec_power=1,
+    sr=22050,
+    stft_scales=[2048, 1024, 512, 256],
+    stride=4,
+    z_dim=128,
+):
 
-    parser = ArgumentParser()
-    parser.add_argument("--classes", nargs="+")
-    parser.add_argument("--data_dir", type=str)
-    parser.add_argument("--name", default="test", type=str)
-    parser.add_argument("--continue_train", action="store_true")
-    parser.add_argument("--batch_size", default=24, type=int)
-    parser.add_argument("--learning_rate", default=0.0002, type=float)
-    parser.add_argument("--max_steps", default=300000, type=int)
-    parser.add_argument("--num_workers", default=2, type=int)
-    parser.add_argument("--gpus", default=1, type=int)
-    parser.add_argument("--precision", default=32, type=int)
-    parser.add_argument("--profiler", action="store_true")
-    parser.add_argument("--out_dir", default="outputs", type=str)
-    parser.add_argument("--tar_beta", default=0.003, type=float)
-    parser.add_argument("--beta_steps", default=500, type=int)
-    parser.add_argument("--tar_l", default=1.1, type=float)
-    args = parser.parse_args()
+    if name is None:
+        name = "granular_waveform_" + Path(data_dir).stem
 
-    if args.name is None:
-        args.name = "waveform_" + Path(args.data_dir).stem
+    args = dict(
+        classes=sorted(classes),
+        data_dir=data_dir,
+        name=name,
+        continue_train=continue_train,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        max_steps=max_steps,
+        num_workers=num_workers,
+        gpus=gpus,
+        precision=precision,
+        profiler=profiler,
+        out_dir=out_dir,
+        tar_beta=tar_beta,
+        beta_steps=beta_steps,
+        tar_l=tar_l,
+        w_config=dict(
+            amplitude_norm=amplitude_norm,
+            channels=channels,
+            env_dist=env_dist,
+            h_dim=h_dim,
+            kernel_size=kernel_size,
+            l_grain=l_grain,
+            log_dist=log_dist,
+            mel_dist=mel_dist,
+            mel_scales=mel_scales,
+            n_convs=n_convs,
+            n_linears=n_linears,
+            normalize_ola=normalize_ola,
+            pp_chans=pp_chans,
+            pp_ker=pp_ker,
+            silent_reject=silent_reject,
+            spec_power=spec_power,
+            sr=sr,
+            stft_scales=stft_scales,
+            stride=stride,
+            z_dim=z_dim,
+        ),
+    )
 
-    if args.continue_train:
-        ckpt_file = sorted(glob.glob(os.path.join(curr_dir, args.out_dir, args.name, "checkpoints", "*.ckpt")))[-1]
-        yaml_file = os.path.join(curr_dir, args.out_dir, args.name, "hparams.yaml")
-        args.name = args.name + "_continue"
+    if continue_train:
+        ckpt_file = sorted(glob.glob(os.path.join(out_dir, name, "checkpoints", "*.ckpt")))[-1]
+        yaml_file = os.path.join(out_dir, name, "hparams.yaml")
+        name = name + "_continue"
         # take care of setting the learning rate and beta kld to the target end of training values
         lr_decay = 1e-2
-        args.learning_rate = args.learning_rate * lr_decay
-        print("\n*** training continuation for ", args.name)
+        learning_rate = learning_rate * lr_decay
+        print("\n*** training continuation for ", name)
         print("from ckpt_file,yaml_file =", ckpt_file, yaml_file)
 
-    default_root_dir = os.path.join(curr_dir, args.out_dir, args.name)
+    default_root_dir = os.path.join(out_dir, name)
     print("writing outputs into default_root_dir", default_root_dir)
 
     # lighting is writting output files in default_root_dir/lightning_logs/version_0/
@@ -100,13 +131,13 @@ if __name__ == "__main__":
     lr_monitor = LearningRateMonitor(logging_interval="epoch")
 
     trainer = pl.Trainer(
-        max_steps=args.max_steps,
+        max_steps=max_steps,
         check_val_every_n_epoch=1,
-        gpus=args.gpus,
-        precision=args.precision,
+        gpus=gpus,
+        precision=precision,
         benchmark=True,
         default_root_dir=default_root_dir,
-        profiler=args.profiler,
+        profiler=profiler,
         progress_bar_refresh_rate=50,
         callbacks=[lr_monitor],
     )
@@ -118,16 +149,16 @@ if __name__ == "__main__":
     print("\n*** loading data")
 
     train_dataloader, test_dataloader, tar_l, n_grains, l_grain, hop_size, classes = make_audio_dataloaders(
-        args.data_dir,
-        args.classes,
-        w_config["sr"],
-        w_config["silent_reject"],
-        w_config["amplitude_norm"],
-        args.batch_size,
-        tar_l=args.tar_l,
-        l_grain=w_config["l_grain"],
+        data_dir,
+        classes,
+        sr,
+        silent_reject,
+        amplitude_norm,
+        batch_size,
+        tar_l=tar_l,
+        l_grain=l_grain,
         high_pass_freq=50.0,
-        num_workers=args.num_workers,
+        num_workers=num_workers,
     )
 
     # ------------
@@ -136,44 +167,44 @@ if __name__ == "__main__":
 
     print("\n*** building model")
 
-    if args.continue_train:
-        w_model = waveform_model.load_from_checkpoint(
-            checkpoint_path=ckpt_file, hparams_file=yaml_file, map_location="cpu", learning_rate=args.learning_rate
+    if continue_train:
+        w_model = WaveformModel.load_from_checkpoint(
+            checkpoint_path=ckpt_file, hparams_file=yaml_file, map_location="cpu", learning_rate=learning_rate
         )
     else:
-        w_model = waveform_model(
-            w_config["z_dim"],
-            w_config["h_dim"],
-            w_config["kernel_size"],
-            w_config["channels"],
-            w_config["n_convs"],
-            w_config["stride"],
-            w_config["n_linears"],
+        w_model = WaveformModel(
+            z_dim,
+            h_dim,
+            kernel_size,
+            channels,
+            n_convs,
+            stride,
+            n_linears,
             n_grains,
             hop_size,
-            w_config["normalize_ola"],
-            w_config["pp_chans"],
-            w_config["pp_ker"],
+            normalize_ola,
+            pp_chans,
+            pp_ker,
             l_grain=l_grain,
-            sr=w_config["sr"],
-            learning_rate=args.learning_rate,
+            sr=sr,
+            learning_rate=learning_rate,
         )
-    w_model.continue_train = args.continue_train
+    w_model.continue_train = continue_train
     w_model.to(device)
-    w_model.init_beta(args.max_steps, args.tar_beta, beta_steps=args.beta_steps)
+    w_model.init_beta(max_steps, tar_beta, beta_steps=beta_steps)
     w_model.init_SpectralDistances(
-        stft_scales=w_config["stft_scales"],
-        mel_scales=w_config["mel_scales"],
-        spec_power=w_config["spec_power"],
-        mel_dist=w_config["mel_dist"],
-        log_dist=w_config["log_dist"],
-        env_dist=w_config["env_dist"],
+        stft_scales=stft_scales,
+        mel_scales=mel_scales,
+        spec_power=spec_power,
+        mel_dist=mel_dist,
+        log_dist=log_dist,
+        env_dist=env_dist,
         device=device,
     )  # TODO: it seems that scale=512 creates empty mel filterbank ?
     w_model.export_dir = os.path.join(tmp_dir, "exports")  # to write export files
 
     print("model running on device", w_model.device)
-    print("model hyper-parameters", w_model.hparams)
+    print("model hyper-parameters\n", w_model.hparams)
 
     w_model.train()
     for batch in train_dataloader:
@@ -218,12 +249,7 @@ if __name__ == "__main__":
     # misc.
     # ------------
 
-    args = vars(args)
-    args["classes"] = classes  # make sure the classes are saved in the sorted order used for training
-
-    np.save(os.path.join(tmp_dir, "argparse.npy"), args)
-    shutil.move(tmp_dir, os.path.join(curr_dir, args["out_dir"]))
+    np.save(os.path.join(tmp_dir, "config.npy"), args)
+    shutil.move(tmp_dir, os.path.join(args["out_dir"]))
     shutil.rmtree(default_root_dir)
-    os.rename(os.path.join(curr_dir, args["out_dir"], "version_0"), default_root_dir)
-
-    # tensorboard --logdir
+    os.rename(os.path.join(args["out_dir"], "version_0"), default_root_dir)
