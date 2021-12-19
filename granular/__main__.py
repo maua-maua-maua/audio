@@ -2,18 +2,14 @@ from typing import List
 
 import fire
 
+from granular.inference import generate
 from granular.train_stage1 import stage1
 from granular.train_stage2 import stage2
 from granular.train_stage3 import stage3
 
 
 class Pipeline(object):
-    def __init__(self):
-        self.stage1 = Stage1()
-        self.stage2 = Stage2()
-        self.stage3 = Stage3()
-
-    def all(
+    def train_all(
         self,
         data_dir: str,
         name=None,
@@ -77,7 +73,7 @@ class Pipeline(object):
         hierarchical_num_workers=2,
         hierarchical_precision=32,
     ):
-        self.stage1.run(
+        self.train_waveform(
             data_dir=data_dir,
             classes=classes,
             name=waveform_name if waveform_name is not None else f"granular_waveform_{name}",
@@ -114,7 +110,7 @@ class Pipeline(object):
             stride=waveform_stride,
             z_dim=waveform_z_dim,
         )
-        self.stage2.run(
+        self.train_latent(
             data_dir=data_dir,
             name=latent_name if latent_name is not None else f"granular_latent_{name}",
             waveform_name=waveform_name if waveform_name is not None else f"granular_waveform_{name}",
@@ -135,7 +131,7 @@ class Pipeline(object):
             n_linears=latent_n_linears,
             rnn_type=latent_rnn_type,
         )
-        self.stage3.run(
+        self.train_hierarchical(
             data_dir=data_dir,
             latent_name=latent_name if latent_name is not None else f"granular_latent_{name}",
             waveform_name=waveform_name if waveform_name is not None else f"granular_waveform_{name}",
@@ -151,9 +147,7 @@ class Pipeline(object):
             out_dir=out_dir,
         )
 
-
-class Stage1(object):
-    def run(
+    def train_waveform(
         self,
         data_dir: str,
         classes=[],
@@ -230,9 +224,7 @@ class Stage1(object):
             z_dim=z_dim,
         )
 
-
-class Stage2(object):
-    def run(
+    def train_latent(
         self,
         data_dir: str,
         name=None,
@@ -277,9 +269,7 @@ class Stage2(object):
             rnn_type=rnn_type,
         )
 
-
-class Stage3(object):
-    def run(
+    def train_hierarchical(
         self,
         data_dir: str,
         latent_name=None,
@@ -309,6 +299,44 @@ class Stage3(object):
             precision=precision,
             profiler=profiler,
             out_dir=out_dir,
+        )
+
+    def inference(
+        self,
+        latent_name,
+        waveform_name,
+        finetuned=False,
+        model_dir="modelzoo/",
+        output_dir="output/",
+        samples_id=0,
+        temperature=1.0,
+        interp_len=4.0,
+        bpm=100,
+        n_bars=2,
+        # pattern dict defines the generated loop:
+        # each class is given a list of events [[onset1,amp1],[onset2,amp2],...]
+        # onset is in [0,1] as fraction of loop_len
+        # amplitude is in [0,1] ~ velocity
+        pattern_dict={
+            "Kick": [[0.0, 0.6], [0.2, 0.4], [0.4, 0.6], [0.6, 0.4], [0.7, 0.2], [0.8, 0.6]],
+            "Snare": [[0.25, 0.5], [0.9, 0.5]],
+            "Hat": [[0.1, 0.3], [0.3, 0.3], [0.5, 0.3], [0.85, 0.2]],
+            "Clap": [[0.15, 0.2], [0.45, 0.2], [0.75, 0.4]],
+            "Cymb_Crash_Ride": [[0.65, 0.6]],
+        },
+    ):
+        return generate(
+            latent_name=latent_name,
+            waveform_name=waveform_name,
+            finetuned=finetuned,
+            model_dir=model_dir,
+            output_dir=output_dir,
+            samples_id=samples_id,
+            temperature=temperature,
+            interp_len=interp_len,
+            bpm=bpm,
+            n_bars=n_bars,
+            pattern_dict=pattern_dict,
         )
 
 
