@@ -34,7 +34,7 @@ def stage3(
     w_beta=0.0,
     l_beta=0.0,
     max_steps=100000,
-    num_workers=2,
+    num_workers=4,
     gpus=1,
     precision=32,
     profiler=False,

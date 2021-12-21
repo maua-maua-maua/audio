@@ -32,7 +32,7 @@ def stage1(
     batch_size=24,
     learning_rate=0.0002,
     max_steps=300000,
-    num_workers=2,
+    num_workers=4,
     gpus=1,
     precision=32,
     profiler=False,

@@ -11,16 +11,53 @@ matplotlib.rcParams["agg.path.chunksize"] = 10000
 matplotlib.use("Agg")  # for the server
 import glob
 import os
+from functools import partial
+from pathlib import Path
 
 import librosa
 import numpy as np
 import seaborn as sns
 import soundfile as sf
 import torch
+import torch.multiprocessing as mp
 import torchaudio
 from matplotlib import pyplot as plt
 from sklearn.decomposition import PCA
 from torch.utils.data import DataLoader, random_split
+from tqdm import tqdm
+
+
+def preprocess_file(file, sr, silent_reject, amplitude_norm, tar_l, high_pass_freq):
+    reject = 0
+    data, samplerate = sf.read(file)
+    if len(data.shape) > 1:
+        data = data.swapaxes(1, 0)
+        data = librosa.to_mono(data)
+    if samplerate != sr:
+        data = librosa.resample(data, samplerate, sr)
+
+    data -= np.mean(data)
+    if silent_reject[0] != 0 and np.max(np.abs(data)) < silent_reject[0]:
+        reject = 1  # peak amplitude is too low
+    trim_pos = librosa.effects.trim(data, top_db=60, frame_length=1024, hop_length=128)[1]
+    if silent_reject[1] != 0 and (trim_pos[1] - trim_pos[0]) < silent_reject[1] * tar_l:
+        reject = 1  # non-silent length is too low
+
+    if reject == 0:
+        if len(data) < tar_l:
+            data = np.concatenate((data, np.zeros((tar_l - len(data)))))
+        else:
+            data = data[:tar_l]
+
+        data = torchaudio.functional.highpass_biquad(torch.from_numpy(data), sr, high_pass_freq).numpy()
+
+        if amplitude_norm or np.max(np.abs(data)) >= 1:
+            data /= np.max(np.abs(data))
+            data *= 0.9
+
+        return data
+    else:
+        return None
 
 
 def make_audio_dataloaders(
@@ -33,7 +70,7 @@ def make_audio_dataloaders(
     tar_l=1.1,
     l_grain=2048,
     high_pass_freq=50,
-    num_workers=2,
+    num_workers=4,
 ):
 
     hop_ratio = 0.25  # hard-coded along with n_grains formula
@@ -59,43 +96,40 @@ def make_audio_dataloaders(
         audios = []
         labels = []
         n_rejected = 0
-        for file in files:
-            reject = 0
-            data, samplerate = sf.read(file)
-            if len(data.shape) > 1:
-                data = data.swapaxes(1, 0)
-                data = librosa.to_mono(data)
-            if samplerate != sr:
-                data = librosa.resample(data, samplerate, sr)
 
-            data -= np.mean(data)
-            if silent_reject[0] != 0 and np.max(np.abs(data)) < silent_reject[0]:
-                reject = 1  # peak amplitude is too low
-            trim_pos = librosa.effects.trim(data, top_db=60, frame_length=1024, hop_length=128)[1]
-            if silent_reject[1] != 0 and (trim_pos[1] - trim_pos[0]) < silent_reject[1] * tar_l:
-                reject = 1  # non-silent length is too low
+        cache_file = f"cache/{Path(data_dir).stem}_{label}_length{tar_l}.npz"
+        if not os.path.exists(cache_file):
+            with mp.Pool(mp.cpu_count()) as pool:
+                for data in tqdm(
+                    pool.imap_unordered(
+                        partial(
+                            preprocess_file,
+                            sr=sr,
+                            silent_reject=silent_reject,
+                            amplitude_norm=amplitude_norm,
+                            tar_l=tar_l,
+                            high_pass_freq=high_pass_freq,
+                        ),
+                        files,
+                    ),
+                    total=len(files),
+                ):
+                    if data is not None:
+                        audios.append(data)
+                        labels.append(i)
+                    else:
+                        n_rejected += 1
 
-            if reject == 0:
-                if len(data) < tar_l:
-                    data = np.concatenate((data, np.zeros((tar_l - len(data)))))
-                else:
-                    data = data[:tar_l]
+            print("n_rejected = ", n_rejected)
+            audios = np.stack(audios, axis=0)
+            labels = np.stack(labels, axis=0)
+            np.savez_compressed(cache_file, audios=audios, labels=labels)
+        else:
+            with np.load(cache_file) as npz:
+                audios, labels = npz["audios"], npz["labels"]
 
-                data = torchaudio.functional.highpass_biquad(torch.from_numpy(data), sr, high_pass_freq).numpy()
-
-                if amplitude_norm or np.max(np.abs(data)) >= 1:
-                    data /= np.max(np.abs(data))
-                    data *= 0.9
-
-                audios.append(data)
-                labels.append(i)
-            else:
-                n_rejected += 1
-
-        print("n_rejected = ", n_rejected)
-
-        audios = torch.from_numpy(np.stack(audios, axis=0)).float()
-        labels = torch.from_numpy(np.stack(labels, axis=0)).long()
+        audios = torch.from_numpy(audios).float()
+        labels = torch.from_numpy(labels).long()
         print("* dataset sizes", audios.shape, labels.shape)
 
         n_label = len(labels)

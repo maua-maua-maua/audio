@@ -40,7 +40,7 @@ def stage2(
     tar_beta=0.01,
     beta_steps=500,
     conditional=False,
-    num_workers=2,
+    num_workers=4,
     gpus=1,
     precision=32,
     profiler=False,

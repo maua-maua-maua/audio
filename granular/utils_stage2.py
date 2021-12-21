@@ -22,7 +22,7 @@ from sklearn.decomposition import PCA
 from torch.utils.data import DataLoader
 
 
-def make_latent_dataloaders(train_latents, train_labels, test_latents, test_labels, batch_size, num_workers=2):
+def make_latent_dataloaders(train_latents, train_labels, test_latents, test_labels, batch_size, num_workers=4):
     train_dataset = torch.utils.data.TensorDataset(train_latents, train_labels)
     test_dataset = torch.utils.data.TensorDataset(test_latents, test_labels)
     # shapes are latents = [N,n_grains,z_dim] ; labels = [N]
